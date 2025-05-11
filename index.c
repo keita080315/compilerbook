@@ -6,56 +6,153 @@
 #include <string.h>
 
 typedef enum {
-  TK_RESERVED, // 記号
-  TK_NUM,      // 整数トークン
-  TK_EOF,      // 入力の終わりを表すトークン
+  TK_ADD,
+  TK_SUB,
+  TK_MUL,
+  TK_DIV,
+  TK_NUM,
+  TK_EOF,
 } TokenKind;
 
 typedef struct Node {
   TokenKind kind;
-  struct Node* next;
+  struct Node* leftNode;
+  struct Node* rightNode;
   int data_num;
-  char data_sym;
 } Node;
 
-typedef struct {
-  Node* first;
-  Node* last;
-} LinkedList;
+typedef struct List {
+  struct List* next;
+  char data_sym;
+  int data_num;
+} List;
 
-Node* tokenize(char *p) {
-  LinkedList* linkedList = calloc(1, sizeof(LinkedList));
+Node* primary();
+Node* mul();
+Node* expr();
+
+List *list;
+
+List* tokenize(char *p) {
+  List head;
+  head.next = NULL;
+  List* list = &head;
 
   while(*p) {
     if(isblank(*p)) {
         p++;
         continue;
     }
-
-    Node* node = calloc(1, sizeof(Node));
-    node->next = NULL;
-
-    // 記号を連結リストに格納
-    if(*p == '+' || *p == '-') {
-      node->data_sym = *p;
-      node->kind = TK_RESERVED;
+    List* tmp = calloc(1, sizeof(List));
+    if(isdigit(*p)) {
+      tmp->data_num = strtol(p,&p,10);
+    } else {
+      tmp->data_sym = *p;
       p++;
     }
-    // 数字を連結リストに格納
-    else if(isdigit(*p)) {
-      node->data_num = strtol(p,&p,10);
-      node->kind = TK_NUM;
-    }
 
-    if(linkedList->last != NULL) {
-        linkedList->last->next = node;
-    } else {
-        linkedList->first = node;
-    }
-
-    linkedList->last = node;
+    list->next = tmp;
+    list = tmp;
   }
-  return linkedList->first;
+  return head.next;
+}
+
+Node* addNode(TokenKind dataKind, Node* leftNode, Node* rightNode) {
+    Node* node = calloc(1, sizeof(Node));
+    node->kind = dataKind;
+    node->leftNode = leftNode;
+    node->rightNode = rightNode;
+    return node;
+}
+
+Node* addNumNode(TokenKind dataKind, int num) {
+    Node* node = calloc(1, sizeof(Node));
+    node->kind = dataKind;
+    node->data_num = num;
+    return node;
+}
+
+Node* expr() {
+    Node* node = mul();
+    for(;;) {
+        if(list->data_sym == '+') {
+            list = list->next;
+            node = addNode(TK_ADD, node, mul());
+        } else if(list->data_sym == '-') {
+            list = list->next;
+            node = addNode(TK_SUB, node, mul());
+        } else {
+            return node;
+        }
+    }
+}
+
+Node* mul() {
+    Node* node = primary();
+    for(;;) {
+        if(list->data_sym == '*') {
+            list = list->next;
+            node = addNode(TK_MUL, node, primary());
+        } else if(list->data_sym == '/') {
+            list = list->next;
+            node = addNode(TK_DIV, node, primary());
+        } else {
+            return node;
+        }
+    }    
+}
+
+Node* primary() {
+    Node* node;
+    if(list->data_sym == '(') {
+        list = list->next;
+        node = expr();
+        if(list->data_sym != ')') {
+            fprintf(stderr, "()が正しく使用されていません\n");
+        } else {
+            list = list->next;
+        }
+    } else {
+        node = addNumNode(TK_NUM, list->data_num);
+        if(list->next != NULL) {
+            list = list->next;
+        }
+    }
+    return node;
+}
+
+void move(Node* node) {
+    if(node->kind == TK_NUM) {
+        // PUSH処理
+        printf("  mov x0, %d\n", node->data_num);
+        printf("  stp x0, xzr, [sp, #-16]!\n");
+        return;
+    } else {
+        move(node->leftNode);
+        move(node->rightNode);
+        // 演算処理
+        printf("  ldp x1, xzr, [sp], #16\n");
+        printf("  ldp x0, xzr, [sp], #16\n");
+        switch (node->kind)
+        {
+        case TK_ADD:
+            printf("  add x0, x0, x1\n");
+            break;
+        case TK_SUB:
+            printf("  sub x0, x0, x1\n");
+            break;            
+        case TK_MUL:
+            printf("  mul x0, x0, x1\n");
+            break;
+        case TK_DIV:
+            printf("  div x0, x0, x1\n");
+            break;       
+        default:
+            fprintf(stderr, "演算子が正しくありません\n");
+            break;
+        }
+        printf("  stp x0, xzr, [sp, #-16]!\n");
+    }
 }
 
 int main(int argc, char **argv) {
@@ -68,30 +165,14 @@ int main(int argc, char **argv) {
   printf("main:\n");
   char *p = argv[1];
 
-  Node *token = tokenize(p);
-  if(token->kind != TK_NUM) {
-    fprintf(stderr, "1文字目に数字以外が与えられています: '%c'\n", token->data_sym);
-    return -1;
-  }
-  printf("  mov x0, %d\n", token->data_num);
+  list = tokenize(p);
+  Node * node = expr();
 
-  while(token->next != NULL) {
-    token = token->next;
-    if(token->kind == TK_RESERVED) {
-        if(token->data_sym == '+') {
-            token = token->next;
-            printf("  add x0, x0, %d\n", token->data_num);
-        }
-        if(token->data_sym == '-') {
-            token = token->next;
-            printf("  sub x0, x0, %d\n", token->data_num);
-        }
-        continue;
-    }
-
-    fprintf(stderr, "予期しない文字です: '%d'\n", token->data_num);
-    return -1;
-  }
+  printf("  stp x29, x30, [sp, #-16]!\n");
+  printf("  mov x29, sp\n");
+  move(node);
+  printf("  mov sp, x29\n");
+  printf("  ldp x29, x30, [sp], #16\n");
 
   printf("  ret\n");
   return 0;

@@ -145,7 +145,7 @@ void move(Node* node) {
             printf("  mul x0, x0, x1\n");
             break;
         case TK_DIV:
-            printf("  div x0, x0, x1\n");
+            printf("  sdiv x0, x0, x1\n");
             break;       
         default:
             fprintf(stderr, "演算子が正しくありません\n");

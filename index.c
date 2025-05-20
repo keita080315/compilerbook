@@ -28,6 +28,7 @@ typedef struct List {
 } List;
 
 Node* primary();
+Node* unary();
 Node* mul();
 Node* expr();
 
@@ -88,18 +89,33 @@ Node* expr() {
 }
 
 Node* mul() {
-    Node* node = primary();
+    Node* node = unary();
     for(;;) {
         if(list->data_sym == '*') {
             list = list->next;
-            node = addNode(TK_MUL, node, primary());
+            node = addNode(TK_MUL, node, unary());
         } else if(list->data_sym == '/') {
             list = list->next;
-            node = addNode(TK_DIV, node, primary());
+            node = addNode(TK_DIV, node, unary());
         } else {
             return node;
         }
     }    
+}
+
+Node* unary() {
+    Node* node;
+    if(list->data_sym == '+') {
+        list = list->next;
+        node = primary();
+    } else if(list->data_sym == '-') {
+        list = list->next;
+        node = primary();
+        node->data_num *= -1;
+    } else {
+        node = primary();
+    }
+    return node;
 }
 
 Node* primary() {
@@ -125,14 +141,14 @@ void move(Node* node) {
     if(node->kind == TK_NUM) {
         // PUSH処理
         printf("  mov x0, %d\n", node->data_num);
-        printf("  stp x0, xzr, [sp, #-16]!\n");
+        printf("  str x0, [sp, #-16]!\n");
         return;
     } else {
         move(node->leftNode);
         move(node->rightNode);
         // 演算処理
-        printf("  ldp x1, xzr, [sp], #16\n");
-        printf("  ldp x0, xzr, [sp], #16\n");
+        printf("  ldr x1, [sp], #16\n");
+        printf("  ldr x0, [sp], #16\n");
         switch (node->kind)
         {
         case TK_ADD:
@@ -151,7 +167,7 @@ void move(Node* node) {
             fprintf(stderr, "演算子が正しくありません\n");
             break;
         }
-        printf("  stp x0, xzr, [sp, #-16]!\n");
+        printf("  str x0, [sp, #-16]!\n");
     }
 }
 
